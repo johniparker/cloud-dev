@@ -3,6 +3,7 @@ import json
 import time
 import logging
 from moto import mock_aws
+from .config import BUCKET_NAME, TABLE_NAME
 
 # Configure logging
 logging.basicConfig(filename='consumer.log', level=logging.INFO, 
@@ -51,6 +52,10 @@ class Consumer:
                 'description': request.get('description'),
                 'attributes': request.get('otherAttributes')
             }
+            if 'owner' not in widget:
+                print('widget is missing an owner')
+                return
+            
             self.store_in_s3(widget)
             self.store_in_dynamodb(widget)
         else:
@@ -66,8 +71,9 @@ class Consumer:
         table = self.dynamodb.Table(self.table_name)
         table.put_item(Item=widget)
         logging.info("Stored widget in DynamoDB")
+    
 
-
-# Instantiate and start the consumer
-consumer = Consumer(bucket_name='usu-cs5250-green-requests', table_name='widgets')
-consumer.poll_requests()
+if __name__ == "__main__":
+    # Instantiate and start the consumer
+    consumer = Consumer(bucket_name=BUCKET_NAME, table_name=TABLE_NAME)
+    consumer.poll_requests()
