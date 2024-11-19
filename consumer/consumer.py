@@ -2,9 +2,8 @@ import boto3
 import json
 import time
 import logging
+import argparse
 from moto import mock_aws
-from .config import BUCKET_NAME, TABLE_NAME
-
 # Configure logging
 logging.basicConfig(filename='consumer.log', level=logging.INFO, 
                     format='%(asctime)s:%(levelname)s:%(message)s')
@@ -18,14 +17,21 @@ class Consumer:
         logging.info("Consumer initialized.")
 
     def poll_requests(self):
-        while True:
+        empty_poll_count = 0
+        max_empty_polls = 10
+        
+        while empty_poll_count < max_empty_polls:
             request_key = self.get_next_request()
             if request_key:
                 self.process_request(request_key)
                 self.s3.delete_object(Bucket=self.bucket_name, Key=request_key)
                 logging.info(f"Processed and deleted request: {request_key}")
+                empty_poll_count = 0
             else:
+                empty_poll_count += 1
                 time.sleep(0.1)
+                
+        logging.info("No more requests found. Exiting.")
 
     def get_next_request(self):
         response = self.s3.list_objects_v2(Bucket=self.bucket_name)
@@ -74,6 +80,17 @@ class Consumer:
     
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Run the S3-DynamoDB consumer.")
+    parser.add_argument('--bucket', required=True, help="S3 bucket name")
+    parser.add_argument('--table', required=True, help="DynamoDB table name")
+    parser.add_argument('--strategy', choices=['polling', 'event-driven'], default='polling',
+                        help="Storage strategy to use (default: polling)")
+
+    args = parser.parse_args()
     # Instantiate and start the consumer
-    consumer = Consumer(bucket_name=BUCKET_NAME, table_name=TABLE_NAME)
-    consumer.poll_requests()
+    consumer = Consumer(bucket_name=args.bucket, table_name=args.table)
+    if args.strategy == 'polling':
+        consumer.poll_requests()
+    else:
+        logging.info("Event-driven strategy is not implemented yet.")
