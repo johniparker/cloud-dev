@@ -62,15 +62,17 @@ class Consumer:
             logging.warning(f"Unknown request type '{request_type}'. Ignoring.")
 
     def handle_create_request(self, request):
+        print('REQUEST WIDGET: ', request['widget'], '\nTYPE: ', type(request['widget']))
         widget = {
-                'id': request.get('widgetId'),
-                'widgetId': request.get('widgetId'),  # Map widgetId to id for DynamoDB
-                'owner': request.get('owner'),
-                'label': request.get('label'),
-                'description': request.get('description'),
-                'attributes': request.get('otherAttributes')
-            }
-        if 'owner' not in widget or widget['owner'] is None:
+            'id': request['widget'].get('widgetId'),  # Map widgetId to id for DynamoDB
+            'widgetId': request['widget'].get('widgetId'),
+            'owner': request['widget'].get('owner'),
+            'label': request['widget'].get('label'),
+            'description': request['widget'].get('description'),
+            'otherAttributes': request['widget'].get('otherAttributes')
+        }
+        
+        if widget['owner'] is None:
             print('widget is missing an owner')
             return
         
@@ -96,9 +98,21 @@ class Consumer:
         Store a widget in the DynamoDB table with flattened attributes.
         :param widget: Widget data.
         """
+        print('WIDGET: ', widget)
+        flattened_widget = {
+            'id': widget.get('id'),
+            'widgetId': widget.get('widgetId'),
+            'owner': widget.get('owner'),
+            'label': widget.get('label'),
+            'description': widget.get('description'),
+            'otherAttributes': widget.get('otherAttributes')
+        }
         table = self.dynamodb.Table(self.table_name)
-        flattened_widget = widget.copy()
-        flattened_widget.update(widget.pop('attributes', {}))  # Flatten otherAttributes
+        other_attributes = widget.get('otherAttributes', {})
+        if other_attributes:
+            for key, value in other_attributes.items():
+                flattened_widget[key] = value
+          
         table.put_item(Item=flattened_widget)
         logging.info("Stored widget in DynamoDB")
     

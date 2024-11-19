@@ -61,31 +61,45 @@ class TestConsumer(unittest.TestCase):
    
     def test_process_request(self):
         # Add a request object to S3
-        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}}))
+        widget = {'widgetId': '1', 'owner': 'Test User'}
+        expected_widget = {
+            'id': '1',
+            'widgetId': '1',
+            'owner': 'Test User',
+            'label': None,
+            'description': None,
+            'otherAttributes': None
+        }
+        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', 'widget': widget}))
 
         # Process the request
         self.consumer.process_request('request1')
         
-        # Check the contents of the storage bucket to verify if the widget is there
-        response = self.s3.list_objects_v2(Bucket=self.request_bucket)
-        print("S3 Bucket contents:", response.get('Contents', []))  # This will print the contents of the storage bucket
-
         # Check if the widget is stored in S3
         try:
             result = self.s3.get_object(Bucket=self.storage_bucket, Key="widgets/test-user/1")
             stored_widget = json.loads(result['Body'].read().decode('utf-8'))
-            self.assertEqual(stored_widget, widget)
+            self.assertEqual(stored_widget, expected_widget)
         except self.s3.exceptions.ClientError as e:
             self.fail(f"Failed to retrieve object from S3: {e}")
 
     
     def test_store_in_dynamodb(self):
-        widget = {'widgetId': '1', 'owner': 'Test User'}
+        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User'}
+        expected_widget = {
+            'id': '1',
+            'widgetId': '1',
+            'owner': 'Test User',
+            'label': None,
+            'description': None,
+            'otherAttributes': None
+        }
         self.consumer.store_in_dynamodb(widget)
 
         # Retrieve from DynamoDB and verify
         response = self.table.get_item(Key={'widgetId': '1'})
-        self.assertEqual(response['Item'], widget)
+        print('RESPONSE ITEM: ', response['Item'])
+        self.assertEqual(response['Item'], expected_widget)
 
    
     def test_store_in_s3(self):
