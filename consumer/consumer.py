@@ -9,8 +9,15 @@ logging.basicConfig(filename='consumer.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
 
 class Consumer:
-    def __init__(self, bucket_name, table_name):
-        self.bucket_name = bucket_name
+    def __init__(self, request_bucket, storage_bucket, table_name):
+        """
+        Initialize the Consumer with bucket names and table name.
+        :param request_bucket: Bucket containing incoming requests.
+        :param storage_bucket: Bucket to store processed widgets (Bucket 3).
+        :param table_name: DynamoDB table name.
+        """
+        self.request_bucket = request_bucket
+        self.storage_bucket = storage_bucket
         self.table_name = table_name
         self.s3 = boto3.client('s3')
         self.dynamodb = boto3.resource('dynamodb')
@@ -24,7 +31,7 @@ class Consumer:
             request_key = self.get_next_request()
             if request_key:
                 self.process_request(request_key)
-                self.s3.delete_object(Bucket=self.bucket_name, Key=request_key)
+                self.s3.delete_object(Bucket=self.request_bucket, Key=request_key)
                 logging.info(f"Processed and deleted request: {request_key}")
                 empty_poll_count = 0
             else:
@@ -34,14 +41,14 @@ class Consumer:
         logging.info("No more requests found. Exiting.")
 
     def get_next_request(self):
-        response = self.s3.list_objects_v2(Bucket=self.bucket_name)
+        response = self.s3.list_objects_v2(Bucket=self.request_bucket)
         if 'Contents' in response:
             sorted_objects = sorted(response['Contents'], key=lambda x: x['Key'])
             return sorted_objects[0]['Key'] if sorted_objects else None
         return None
 
     def process_request(self, key):
-        obj = self.s3.get_object(Bucket=self.bucket_name, Key=key)
+        obj = self.s3.get_object(Bucket=self.request_bucket, Key=key)
         request = json.loads(obj['Body'].read().decode('utf-8'))
         logging.info(f"Processing request: {request}")
 
@@ -50,7 +57,12 @@ class Consumer:
             print('request is missing the type field.')
             return
         if request_type == 'create':
-            widget = {
+            self.handle_create_request(request)
+        else:
+            logging.warning(f"Unknown request type '{request_type}'. Ignoring.")
+
+    def handle_create_request(self, request):
+        widget = {
                 'id': request.get('widgetId'),
                 'widgetId': request.get('widgetId'),  # Map widgetId to id for DynamoDB
                 'owner': request.get('owner'),
@@ -58,24 +70,36 @@ class Consumer:
                 'description': request.get('description'),
                 'attributes': request.get('otherAttributes')
             }
-            if 'owner' not in widget:
-                print('widget is missing an owner')
-                return
-            
-            self.store_in_s3(widget)
-            self.store_in_dynamodb(widget)
+        if 'owner' not in widget or widget['owner'] is None:
+            print('widget is missing an owner')
+            return
+        
+        # Ensure 'owner' is a string before calling replace
+        owner = widget['owner']
+        if isinstance(owner, str):
+            owner = owner.replace(" ", "-").lower()
         else:
-            print(f"warning: unknown request type '{request_type}")
-
+            logging.error(f"Invalid owner value: {owner}")
+            return
+            
+        self.store_in_s3(widget)
+        self.store_in_dynamodb(widget)
+            
     def store_in_s3(self, widget):
         owner = widget['owner'].replace(" ", "-").lower()
         key = f"widgets/{owner}/{widget['widgetId']}"
-        self.s3.put_object(Bucket=self.bucket_name, Key=key, Body=json.dumps(widget))
+        self.s3.put_object(Bucket=self.storage_bucket, Key=key, Body=json.dumps(widget))
         logging.info(f"Stored widget in S3 at key: {key}")
 
     def store_in_dynamodb(self, widget):
+        """
+        Store a widget in the DynamoDB table with flattened attributes.
+        :param widget: Widget data.
+        """
         table = self.dynamodb.Table(self.table_name)
-        table.put_item(Item=widget)
+        flattened_widget = widget.copy()
+        flattened_widget.update(widget.pop('attributes', {}))  # Flatten otherAttributes
+        table.put_item(Item=flattened_widget)
         logging.info("Stored widget in DynamoDB")
     
 

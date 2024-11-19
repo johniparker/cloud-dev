@@ -1,7 +1,9 @@
+import sys
 import unittest
 from moto import mock_aws
 import boto3
 import json
+import time
 from consumer.consumer import Consumer
 
 class TestConsumer(unittest.TestCase):
@@ -14,12 +16,14 @@ class TestConsumer(unittest.TestCase):
         self.s3 = boto3.client('s3')
         self.dynamodb = boto3.resource('dynamodb')
 
-        # Define test bucket and table
-        self.bucket_name = 'test-bucket'
+        # Define test buckets and table
+        self.request_bucket = 'test-request-bucket'
+        self.storage_bucket = 'test-storage-bucket'
         self.table_name = 'widgets'
 
         # Create bucket and table
-        self.s3.create_bucket(Bucket=self.bucket_name)
+        self.s3.create_bucket(Bucket=self.request_bucket)
+        self.s3.create_bucket(Bucket=self.storage_bucket)
         try:
             self.table = self.dynamodb.create_table(
                 TableName=self.table_name,
@@ -33,28 +37,46 @@ class TestConsumer(unittest.TestCase):
             # If the table already exists, get a reference to it
             self.table = self.dynamodb.Table(self.table_name)
             
-        self.consumer = Consumer(bucket_name=self.bucket_name, table_name=self.table_name)
+         # Set command-line arguments for the Consumer
+        sys.argv = [
+            "consumer_script.py",  # Simulate script name
+            "--request-bucket", self.request_bucket,
+            "--storage-bucket", self.storage_bucket,
+            "--table-name", self.table_name
+        ]
+        # Initialize the Consumer with the test buckets and table
+        self.consumer = Consumer(
+            request_bucket=self.request_bucket,
+            storage_bucket=self.storage_bucket,
+            table_name=self.table_name
+        )
 
     
     def test_get_next_request(self):
         # Add a request object to S3
-        self.s3.put_object(Bucket=self.bucket_name, Key='request1', Body=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}}))
+        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}}))
         next_request = self.consumer.get_next_request()
         self.assertEqual(next_request, 'request1')
 
    
     def test_process_request(self):
         # Add a request object to S3
-        widget = {'widgetId': '1', 'owner': 'Test User'}
-        self.s3.put_object(Bucket=self.bucket_name, Key='request1', Body=json.dumps({'type': 'create', 'widget': widget}))
+        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}}))
 
         # Process the request
         self.consumer.process_request('request1')
+        
+        # Check the contents of the storage bucket to verify if the widget is there
+        response = self.s3.list_objects_v2(Bucket=self.request_bucket)
+        print("S3 Bucket contents:", response.get('Contents', []))  # This will print the contents of the storage bucket
 
         # Check if the widget is stored in S3
-        result = self.s3.get_object(Bucket=self.bucket_name, Key='widgets/test-user/1')
-        stored_widget = json.loads(result['Body'].read().decode('utf-8'))
-        self.assertEqual(stored_widget, widget)
+        try:
+            result = self.s3.get_object(Bucket=self.storage_bucket, Key="widgets/test-user/1")
+            stored_widget = json.loads(result['Body'].read().decode('utf-8'))
+            self.assertEqual(stored_widget, widget)
+        except self.s3.exceptions.ClientError as e:
+            self.fail(f"Failed to retrieve object from S3: {e}")
 
     
     def test_store_in_dynamodb(self):
@@ -71,7 +93,7 @@ class TestConsumer(unittest.TestCase):
         self.consumer.store_in_s3(widget)
 
         # Check if stored in S3 with correct key
-        result = self.s3.get_object(Bucket=self.bucket_name, Key='widgets/test-user/1')
+        result = self.s3.get_object(Bucket=self.storage_bucket, Key='widgets/test-user/1')
         stored_widget = json.loads(result['Body'].read().decode('utf-8'))
         self.assertEqual(stored_widget, widget)
 
