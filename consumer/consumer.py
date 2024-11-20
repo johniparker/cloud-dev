@@ -9,18 +9,25 @@ logging.basicConfig(filename='consumer.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
 
 class Consumer:
-    def __init__(self, request_bucket, storage_bucket, table_name):
+    def __init__(self, queue_name=None, request_bucket=None, storage_bucket=None, table_name=None):
         """
         Initialize the Consumer with bucket names and table name.
         :param request_bucket: Bucket containing incoming requests.
         :param storage_bucket: Bucket to store processed widgets (Bucket 3).
         :param table_name: DynamoDB table name.
         """
+        self.s3 = boto3.client('s3')
+        self.dynamodb = boto3.resource('dynamodb')
+        self.sqs = boto3.client('sqs')
+        
         self.request_bucket = request_bucket
         self.storage_bucket = storage_bucket
         self.table_name = table_name
-        self.s3 = boto3.client('s3')
-        self.dynamodb = boto3.resource('dynamodb')
+        self.message_cache = []
+        self.queue_url = None
+        if queue_name:
+            self.queue_url = self.sqs.get_queue_url(QueueName=queue_name)['QueueUrl']
+        
         logging.info("Consumer initialized.")
 
     def poll_requests(self):
@@ -58,11 +65,14 @@ class Consumer:
             return
         if request_type == 'create':
             self.handle_create_request(request)
+        elif request_type == 'update':
+            self.handle_update_request(request)
+        elif request_type == 'delete':
+            self.handle_delete_request(request)
         else:
             logging.warning(f"Unknown request type '{request_type}'. Ignoring.")
 
     def handle_create_request(self, request):
-        print('REQUEST WIDGET: ', request['widget'], '\nTYPE: ', type(request['widget']))
         widget = {
             'id': request['widget'].get('widgetId'),  # Map widgetId to id for DynamoDB
             'widgetId': request['widget'].get('widgetId'),
@@ -71,11 +81,6 @@ class Consumer:
             'description': request['widget'].get('description'),
             'otherAttributes': request['widget'].get('otherAttributes')
         }
-        
-        if widget['owner'] is None:
-            print('widget is missing an owner')
-            return
-        
         # Ensure 'owner' is a string before calling replace
         owner = widget['owner']
         if isinstance(owner, str):
@@ -87,6 +92,43 @@ class Consumer:
         self.store_in_s3(widget)
         self.store_in_dynamodb(widget)
             
+    def handle_update_request(self, request):
+        widget_id = request['widget'].get('widgetId')
+        updates = request['widget']
+        if not widget_id:
+            logging.error("Update request missing widgetId")
+            return
+
+        # Retrieve current widget from DynamoDB
+        response = self.table_name.get_item(Key={'id': widget_id})
+        if 'Item' not in response:
+            logging.error(f"Widget with id {widget_id} not found for update")
+            return
+
+        # Update attributes
+        updated_widget = response['Item']
+        updated_widget.update(updates)
+
+        # Save updated widget back to DynamoDB
+        table = self.dynamodb.Table(self.table_name)
+        table.put_item(Item=updated_widget)
+        self.s3.put_item(Item=updated_widget)
+        
+    def handle_delete_request(self, request):
+        widget_id = request['widget'].get('widgetId')
+        if not widget_id:
+            logging.error("Delete request missing widgetId")
+            return
+
+        # Delete widget from DynamoDB
+        table = self.dynamodb.Table(self.table_name)
+        table.delete_item(Key={'id': widget_id})
+
+        # Optionally, delete related S3 object
+        owner = request['widget'].get('owner', '').replace(" ", "-").lower()
+        s3_key = f"widgets/{owner}/{widget_id}"
+        self.s3.delete_object(Bucket=self.bucket_name, Key=s3_key)
+        
     def store_in_s3(self, widget):
         owner = widget['owner'].replace(" ", "-").lower()
         key = f"widgets/{owner}/{widget['widgetId']}"
@@ -116,18 +158,44 @@ class Consumer:
         table.put_item(Item=flattened_widget)
         logging.info("Stored widget in DynamoDB")
     
+    #get messages from SQS
+    def get_messages_from_queue(self, max_messages=10):
+        response = self.sqs.receive_message(
+            QueueUrl=self.queue_url,
+            MaxNumberOfMessages=max_messages,
+            WaitTimeSeconds=10  # Long polling to reduce empty responses
+        )
+        return response.get('Messages', [])
+
+    #delete message from SQS
+    def delete_message_from_queue(self, receipt_handle):
+        self.sqs.delete_message(
+            QueueUrl=self.queue_url,
+            ReceiptHandle=receipt_handle
+        )
+        
+    #retrieve the next queue message from the cache if we have one, otherwise retrieve from AWS SQS
+    def get_next_message(self):
+        if not self.message_cache:
+            self.message_cache = self.get_messages_from_queue(max_messages=10)
+
+        if self.message_cache:
+            return self.message_cache.pop(0)  # Return and remove the next message
+        return None
 
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run the S3-DynamoDB consumer.")
-    parser.add_argument('--bucket', required=True, help="S3 bucket name")
-    parser.add_argument('--table', required=True, help="DynamoDB table name")
+    parser.add_argument('--request-bucket', required=False, help="request bucket name")
+    parser.add_argument('--storage-bucket', required=False, help="storage bucket name")
+    parser.add_argument('--table-name', required=False, help="DynamoDB table name")
+    parser.add_argument('--queue-name', required=False, help="SQS queue name")
     parser.add_argument('--strategy', choices=['polling', 'event-driven'], default='polling',
                         help="Storage strategy to use (default: polling)")
 
     args = parser.parse_args()
     # Instantiate and start the consumer
-    consumer = Consumer(bucket_name=args.bucket, table_name=args.table)
+    consumer = Consumer(queue_name=args.queue_name, request_bucket=args.request_bucket, storage_bucket=args.storage_bucket, table_name=args.table_name)
     if args.strategy == 'polling':
         consumer.poll_requests()
     else:
