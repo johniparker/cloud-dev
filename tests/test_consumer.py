@@ -21,9 +21,9 @@ class TestConsumer(unittest.TestCase):
         self.request_bucket = 'test-request-bucket'
         self.storage_bucket = 'test-storage-bucket'
         self.table_name = 'widgets'
-        self.queue_name = 'widgets'
-        self.queue_url = "https://sqs.us-east-1.amazonaws.com/123456789012/cs5250-requests"
-
+        self.queue_name = 'message-queue'
+        queue = self.sqs.create_queue(QueueName=self.queue_name)
+        self.queue_url = queue['QueueUrl']
         # Create bucket and table
         self.s3.create_bucket(Bucket=self.request_bucket)
         self.s3.create_bucket(Bucket=self.storage_bucket)
@@ -43,13 +43,15 @@ class TestConsumer(unittest.TestCase):
          # Set command-line arguments for the Consumer
         sys.argv = [
             "consumer_script.py",  # Simulate script name
+            "--queue-name", self.queue_name,
             "--request-bucket", self.request_bucket,
             "--storage-bucket", self.storage_bucket,
-            "--table-name", self.table_name,
-            "--queue-name", self.queue_name
+            "--table-name", self.table_name
+            
         ]
         # Initialize the Consumer with the test buckets and table
         self.consumer = Consumer(
+            queue_name=self.queue_name,
             request_bucket=self.request_bucket,
             storage_bucket=self.storage_bucket,
             table_name=self.table_name
@@ -116,6 +118,7 @@ class TestConsumer(unittest.TestCase):
         
     def test_get_next_message(self):
         # Add a message to the queue
+        
         self.sqs.send_message(
             QueueUrl=self.queue_url,
             MessageBody=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}})
@@ -153,7 +156,7 @@ class TestConsumer(unittest.TestCase):
         self.consumer.handle_update_request(update_request)
 
         # Verify the updated widget in DynamoDB
-        response = self.table.get_item(Key={'id': '1'})
+        response = self.table.get_item(Key={'widgetId': '1'})
         self.assertIn('Item', response)
         updated_widget = response['Item']
 
@@ -188,7 +191,7 @@ class TestConsumer(unittest.TestCase):
         self.consumer.handle_delete_request(delete_request)
 
         # Verify the widget is removed from DynamoDB
-        response = self.table.get_item(Key={'id': '1'})
+        response = self.table.get_item(Key={'widgetId': '1'})
         self.assertNotIn('Item', response)
 
         # Verify the S3 object is deleted

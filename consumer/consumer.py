@@ -12,6 +12,7 @@ class Consumer:
     def __init__(self, queue_name=None, request_bucket=None, storage_bucket=None, table_name=None):
         """
         Initialize the Consumer with bucket names and table name.
+        :param queue_name: Queue containing incoming messages/requests.
         :param request_bucket: Bucket containing incoming requests.
         :param storage_bucket: Bucket to store processed widgets (Bucket 3).
         :param table_name: DynamoDB table name.
@@ -20,14 +21,24 @@ class Consumer:
         self.dynamodb = boto3.resource('dynamodb')
         self.sqs = boto3.client('sqs')
         
+        self.queue_name = queue_name
         self.request_bucket = request_bucket
         self.storage_bucket = storage_bucket
         self.table_name = table_name
+        self.table = self.dynamodb.Table(self.table_name)
         self.message_cache = []
         self.queue_url = None
-        if queue_name:
-            self.queue_url = self.sqs.get_queue_url(QueueName=queue_name)['QueueUrl']
         
+        if self.queue_name:
+            try:
+                # Attempt to get the queue URL
+                response = self.sqs.get_queue_url(QueueName=self.queue_name)
+                self.queue_url = response['QueueUrl']
+                logging.info(f"Queue URL retrieved: {self.queue_url}")
+            except self.sqs.exceptions.QueueDoesNotExist:
+                logging.error(f"The queue '{self.queue_name}' does not exist.")
+            except Exception as e:
+                logging.error(f"Failed to retrieve queue URL: {e}")
         logging.info("Consumer initialized.")
 
     def poll_requests(self):
@@ -100,7 +111,7 @@ class Consumer:
             return
 
         # Retrieve current widget from DynamoDB
-        response = self.table_name.get_item(Key={'id': widget_id})
+        response = self.table.get_item(Key={'widgetId': widget_id})
         if 'Item' not in response:
             logging.error(f"Widget with id {widget_id} not found for update")
             return
@@ -110,9 +121,10 @@ class Consumer:
         updated_widget.update(updates)
 
         # Save updated widget back to DynamoDB
-        table = self.dynamodb.Table(self.table_name)
-        table.put_item(Item=updated_widget)
-        self.s3.put_item(Item=updated_widget)
+        self.table.put_item(Item=updated_widget)
+        
+        # Save updated widget back to S3
+        self.s3.put_object(Bucket=self.storage_bucket, Key="widgets/test-user/1", Body=json.dumps(updated_widget))
         
     def handle_delete_request(self, request):
         widget_id = request['widget'].get('widgetId')
@@ -121,13 +133,12 @@ class Consumer:
             return
 
         # Delete widget from DynamoDB
-        table = self.dynamodb.Table(self.table_name)
-        table.delete_item(Key={'id': widget_id})
+        self.table.delete_item(Key={'widgetId': widget_id})
 
         # Optionally, delete related S3 object
         owner = request['widget'].get('owner', '').replace(" ", "-").lower()
         s3_key = f"widgets/{owner}/{widget_id}"
-        self.s3.delete_object(Bucket=self.bucket_name, Key=s3_key)
+        self.s3.delete_object(Bucket=self.request_bucket, Key=s3_key)
         
     def store_in_s3(self, widget):
         owner = widget['owner'].replace(" ", "-").lower()
@@ -149,22 +160,26 @@ class Consumer:
             'description': widget.get('description'),
             'otherAttributes': widget.get('otherAttributes')
         }
-        table = self.dynamodb.Table(self.table_name)
+        
         other_attributes = widget.get('otherAttributes', {})
         if other_attributes:
             for key, value in other_attributes.items():
                 flattened_widget[key] = value
           
-        table.put_item(Item=flattened_widget)
+        self.table.put_item(Item=flattened_widget)
         logging.info("Stored widget in DynamoDB")
     
     #get messages from SQS
     def get_messages_from_queue(self, max_messages=10):
+        if not self.queue_url:
+            logging.error("Queue URL is not set. Cannot retrieve messages.")
+            return []
         response = self.sqs.receive_message(
             QueueUrl=self.queue_url,
             MaxNumberOfMessages=max_messages,
             WaitTimeSeconds=10  # Long polling to reduce empty responses
         )
+        logging.info("recieved messages: ", response)
         return response.get('Messages', [])
 
     #delete message from SQS
