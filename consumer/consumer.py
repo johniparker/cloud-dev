@@ -29,6 +29,7 @@ class Consumer:
         self.message_cache = []
         self.queue_url = None
         
+        #get queue url if queue_name is specified
         if self.queue_name:
             try:
                 # Attempt to get the queue URL
@@ -45,6 +46,7 @@ class Consumer:
         empty_poll_count = 0
         max_empty_polls = 10
         
+        #process and delete requests once they've been processed
         while empty_poll_count < max_empty_polls:
             request_key = self.get_next_request()
             if request_key:
@@ -57,23 +59,20 @@ class Consumer:
                 time.sleep(0.1)
                 
         logging.info("No more requests found. Exiting.")
-
+    #get next request in the s3 bucket
     def get_next_request(self):
         response = self.s3.list_objects_v2(Bucket=self.request_bucket)
         if 'Contents' in response:
             sorted_objects = sorted(response['Contents'], key=lambda x: x['Key'])
             return sorted_objects[0]['Key'] if sorted_objects else None
         return None
-
+    #logic for processing requests
     def process_request(self, key):
         obj = self.s3.get_object(Bucket=self.request_bucket, Key=key)
         request = json.loads(obj['Body'].read().decode('utf-8'))
         logging.info(f"Processing request: {request}")
 
         request_type = request.get("type")
-        if not request_type:
-            print('request is missing the type field.')
-            return
         if request_type == 'create':
             self.handle_create_request(request)
         elif request_type == 'update':
@@ -83,6 +82,7 @@ class Consumer:
         else:
             logging.warning(f"Unknown request type '{request_type}'. Ignoring.")
 
+    #if the request is a create request, create the item in s3 and dynamodb
     def handle_create_request(self, request):
         widget = {
             'id': request['widget'].get('widgetId'),  # Map widgetId to id for DynamoDB
@@ -102,7 +102,7 @@ class Consumer:
             
         self.store_in_s3(widget)
         self.store_in_dynamodb(widget)
-            
+    #if the request is to update, update the item in s3 and dynamodb
     def handle_update_request(self, request):
         widget_id = request['widget'].get('widgetId')
         updates = request['widget']
@@ -125,7 +125,8 @@ class Consumer:
         
         # Save updated widget back to S3
         self.s3.put_object(Bucket=self.storage_bucket, Key="widgets/test-user/1", Body=json.dumps(updated_widget))
-        
+    
+    #delete widget from both dynamodb and s3
     def handle_delete_request(self, request):
         widget_id = request['widget'].get('widgetId')
         if not widget_id:
@@ -151,7 +152,6 @@ class Consumer:
         Store a widget in the DynamoDB table with flattened attributes.
         :param widget: Widget data.
         """
-        print('WIDGET: ', widget)
         flattened_widget = {
             'id': widget.get('id'),
             'widgetId': widget.get('widgetId'),
@@ -201,10 +201,10 @@ class Consumer:
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run the S3-DynamoDB consumer.")
+    parser.add_argument('--queue-name', required=False, help="SQS queue name")
     parser.add_argument('--request-bucket', required=False, help="request bucket name")
     parser.add_argument('--storage-bucket', required=False, help="storage bucket name")
     parser.add_argument('--table-name', required=False, help="DynamoDB table name")
-    parser.add_argument('--queue-name', required=False, help="SQS queue name")
     parser.add_argument('--strategy', choices=['polling', 'event-driven'], default='polling',
                         help="Storage strategy to use (default: polling)")
 
