@@ -67,9 +67,9 @@ class TestConsumer(unittest.TestCase):
    
     def test_process_request(self):
         # Add a request object to S3
-        widget = {'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
+        widget = {'requestId': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
         expected_widget = {
-            'id': '1',
+            'requestId': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': None,
@@ -91,9 +91,10 @@ class TestConsumer(unittest.TestCase):
 
     
     def test_store_in_dynamodb(self):
-        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
+        widget = {'requestId': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
         expected_widget = {
             'id': '1',
+            'requestId': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': None,
@@ -108,9 +109,9 @@ class TestConsumer(unittest.TestCase):
 
    
     def test_store_in_s3(self):
-        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
+        widget = {'requestId': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
         expected_widget = {
-            'id': '1',
+            'requestId': '1',
             'widgetId': '1', 
             'owner': 'Test User', 
             'label': None,
@@ -129,7 +130,7 @@ class TestConsumer(unittest.TestCase):
         
         self.sqs.send_message(
             QueueUrl=self.queue_url,
-            MessageBody=json.dumps({'type': 'create', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]})
+            MessageBody=json.dumps({'type': 'create', 'requestId': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]})
         )
 
         message = self.consumer.get_next_message()
@@ -143,6 +144,7 @@ class TestConsumer(unittest.TestCase):
         # Pre-insert a widget into DynamoDB
         self.table.put_item(Item={
             'id': '1',
+            'requestId': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': 'Old Label',
@@ -153,6 +155,7 @@ class TestConsumer(unittest.TestCase):
         # Update request payload
         update_request = {
             'type': 'update',
+            'requestId': '1',
             'widgetId': '1',
             'description': 'Updated Description',
             'newAttribute': 'New Value',
@@ -177,6 +180,7 @@ class TestConsumer(unittest.TestCase):
         # Pre-insert a widget into DynamoDB
         self.table.put_item(Item={
             'id': '1',
+            'requestId': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': 'Label to be deleted',
@@ -190,6 +194,7 @@ class TestConsumer(unittest.TestCase):
         # Delete request payload
         delete_request = {
             'type': 'delete',
+            'requestId': '1',
             'widgetId': '1',
             'owner': 'Test User'
         }

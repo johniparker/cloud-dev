@@ -60,6 +60,7 @@ class Consumer:
                 time.sleep(0.1)
                 
         logging.info("No more requests found. Exiting.")
+        print('no more requests found. exiting')
     #get next request in the s3 bucket
     def get_next_request(self):
         response = self.s3.list_objects_v2(Bucket=self.request_bucket)
@@ -74,6 +75,11 @@ class Consumer:
         logging.info(f"Processing request: {request}")
 
         request_type = request.get("type")
+        request_id = request.get("requestId")
+        
+        #log to the console the request we're processing
+        print(f"processing {request_type} request {request_id}...")
+        
         if request_type == 'create':
             self.handle_create_request(request)
         elif request_type == 'update':
@@ -82,11 +88,13 @@ class Consumer:
             self.handle_delete_request(request)
         else:
             logging.warning(f"Unknown request type '{request_type}'. Ignoring.")
+        
 
     #if the request is a create request, create the item in s3 and dynamodb
     def handle_create_request(self, request):
         widget = {
             'id': request.get('widgetId'),  # Map widgetId to id for DynamoDB
+            'requestId': request.get('requestId'),
             'widgetId': request.get('widgetId'),
             'owner': request.get('owner'),
             'label': request.get('label'),
@@ -150,7 +158,7 @@ class Consumer:
         
     def store_in_s3(self, widget):
         flattened_widget = {
-            'id': widget.get('id'),
+            'requestId': widget.get('requestId'),
             'widgetId': widget.get('widgetId'),
             'owner': widget.get('owner'),
             'label': widget.get('label'),
@@ -169,6 +177,8 @@ class Consumer:
         key = f"widgets/{owner}/{widget['widgetId']}"
         self.s3.put_object(Bucket=self.storage_bucket, Key=key, Body=json.dumps(flattened_widget))
         logging.info(f"Stored widget in S3 at key: {key}")
+        print(f"stored widgeet in s3 at key: {key}")
+        
 
     def store_in_dynamodb(self, widget):
         """
@@ -176,7 +186,8 @@ class Consumer:
         :param widget: Widget data.
         """
         flattened_widget = {
-            'id': widget.get('id'),
+            'id': widget.get('widgetId'),
+            'requestId': widget.get('requestId'),
             'widgetId': widget.get('widgetId'),
             'owner': widget.get('owner'),
             'label': widget.get('label'),
@@ -192,7 +203,8 @@ class Consumer:
                     flattened_widget[name] = value
           
         self.table.put_item(Item=flattened_widget)
-        logging.info("Stored widget in DynamoDB")
+        logging.info(f"Stored widget in DynamoDB: {flattened_widget['widgetId']}")
+        print(f"Stored widget in DynamoDB: {flattened_widget['widgetId']}")
     
     #get messages from SQS
     def get_messages_from_queue(self, max_messages=10):
