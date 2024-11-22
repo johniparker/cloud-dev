@@ -21,8 +21,6 @@ class Consumer:
         self.dynamodb = boto3.resource('dynamodb')
         self.sqs = boto3.client('sqs')
         
-        print(sys.argv)
-        
         self.queue_name = queue_name
         self.request_bucket = request_bucket
         self.storage_bucket = storage_bucket
