@@ -49,18 +49,19 @@ class Consumer:
         
         #process and delete requests once they've been processed
         while empty_poll_count < max_empty_polls:
-            request_key = self.get_next_request()
-            if request_key:
-                self.process_request(request_key)
-                self.s3.delete_object(Bucket=self.request_bucket, Key=request_key)
-                logging.info(f"Processed and deleted request: {request_key}")
-                empty_poll_count = 0
-            else:
-                empty_poll_count += 1
-                time.sleep(0.1)
-                
-        logging.info("No more requests found. Exiting.")
-        print('no more requests found. exiting')
+            try:
+                request_key = self.get_next_request()
+                if request_key:
+                    self.process_request(request_key)
+                    self.s3.delete_object(Bucket=self.request_bucket, Key=request_key)
+                    logging.info(f"Processed and deleted request: {request_key}")
+                    empty_poll_count = 0
+                else:
+                    empty_poll_count += 1
+                    time.sleep(0.1)
+            except:
+                logging.info("No more requests found. Exiting.")
+                print('no more requests found. exiting')
     #get next request in the s3 bucket
     def get_next_request(self):
         response = self.s3.list_objects_v2(Bucket=self.request_bucket)
