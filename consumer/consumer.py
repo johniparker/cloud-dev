@@ -1,4 +1,5 @@
 import boto3
+import botocore
 import json
 import time
 import logging
@@ -102,22 +103,35 @@ class Consumer:
         if not widget_id:
             logging.error("Update request missing widgetId")
             return
-
-        # Retrieve current widget from DynamoDB
-        response = self.table.get_item(Key={'widgetId': widget_id})
-        if 'Item' not in response:
-            logging.error(f"Widget with id {widget_id} not found for update")
-            return
-
-        # Update attributes
-        updated_widget = response['Item']
-        updated_widget.update(updates)
-
-        # Save updated widget back to DynamoDB
-        self.table.put_item(Item=updated_widget)
         
-        # Save updated widget back to S3
-        self.s3.put_object(Bucket=self.storage_bucket, Key="widgets/test-user/1", Body=json.dumps(updated_widget))
+        other_attributes = updates.get('otherAttributes', [])
+        if other_attributes:
+            for attribute in other_attributes:
+                name = attribute.get('name')
+                value = attribute.get('value')
+                if name and value is not None:
+                    updates[name] = value
+
+        try:
+            # Retrieve current widget from DynamoDB
+            response = self.table.get_item(Key={'id': widget_id})
+            if 'Item' not in response:
+                logging.error(f"Widget with id {widget_id} not found for update")
+                return
+            updated_widget = response['Item']
+            
+            #only update the attributes present in request
+            for key, value in updates.items():
+                updated_widget[key] = value
+
+            # Save updated widget back to DynamoDB
+            self.table.put_item(Item=updated_widget)
+            
+            # Save updated widget back to S3
+            self.s3.put_object(Bucket=self.storage_bucket, Key="widgets/test-user/1", Body=json.dumps(updated_widget))
+        
+        except botocore.exceptions.ClientError as e:
+            logging.error(f"error retrieving widget with id {widget_id}: {e}")
     
     #delete widget from both dynamodb and s3
     def handle_delete_request(self, request):
@@ -127,7 +141,7 @@ class Consumer:
             return
 
         # Delete widget from DynamoDB
-        self.table.delete_item(Key={'widgetId': widget_id})
+        self.table.delete_item(Key={'id': widget_id})
 
         # Optionally, delete related S3 object
         owner = request.get('owner', '').replace(" ", "-").lower()

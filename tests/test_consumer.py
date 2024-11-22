@@ -30,8 +30,8 @@ class TestConsumer(unittest.TestCase):
         try:
             self.table = self.dynamodb.create_table(
                 TableName=self.table_name,
-                KeySchema=[{'AttributeName': 'widgetId', 'KeyType': 'HASH'}],
-                AttributeDefinitions=[{'AttributeName': 'widgetId', 'AttributeType': 'S'}],
+                KeySchema=[{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                AttributeDefinitions=[{'AttributeName': 'id', 'AttributeType': 'S'}],
                 ProvisionedThroughput={'ReadCapacityUnits': 1, 'WriteCapacityUnits': 1}
             )
             # Wait for the table to be created
@@ -103,7 +103,7 @@ class TestConsumer(unittest.TestCase):
         self.consumer.store_in_dynamodb(widget)
 
         # Retrieve from DynamoDB and verify
-        response = self.table.get_item(Key={'widgetId': '1'})
+        response = self.table.get_item(Key={'id': '1'})
         self.assertEqual(response['Item'], expected_widget)
 
    
@@ -154,24 +154,24 @@ class TestConsumer(unittest.TestCase):
         update_request = {
             'type': 'update',
             'widgetId': '1',
-            'label': 'Updated Label',
             'description': 'Updated Description',
             'newAttribute': 'New Value',
-            'otherAttributes': [{'name': 'other', 'value': 'other'}]
+            'otherAttributes': [{'name': 'other', 'value': 'new'}]
         }
 
         # Call the update handler
         self.consumer.handle_update_request(update_request)
 
         # Verify the updated widget in DynamoDB
-        response = self.table.get_item(Key={'widgetId': '1'})
+        response = self.table.get_item(Key={'id': '1'})
         self.assertIn('Item', response)
         updated_widget = response['Item']
 
         self.assertEqual(updated_widget['widgetId'], '1')
-        self.assertEqual(updated_widget['label'], 'Updated Label')
+        self.assertEqual(updated_widget['label'], 'Old Label')
         self.assertEqual(updated_widget['description'], 'Updated Description')
         self.assertEqual(updated_widget['newAttribute'], 'New Value')
+        self.assertEqual(updated_widget['other'], 'new')
 
     def test_handle_delete_request(self):
         # Pre-insert a widget into DynamoDB
@@ -198,7 +198,7 @@ class TestConsumer(unittest.TestCase):
         self.consumer.handle_delete_request(delete_request)
 
         # Verify the widget is removed from DynamoDB
-        response = self.table.get_item(Key={'widgetId': '1'})
+        response = self.table.get_item(Key={'id': '1'})
         self.assertNotIn('Item', response)
 
         # Verify the S3 object is deleted
