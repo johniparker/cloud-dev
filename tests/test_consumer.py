@@ -67,16 +67,16 @@ class TestConsumer(unittest.TestCase):
    
     def test_process_request(self):
         # Add a request object to S3
-        widget = {'widgetId': '1', 'owner': 'Test User'}
+        widget = {'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
         expected_widget = {
             'id': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': None,
             'description': None,
-            'otherAttributes': None
+            'other': 'other'
         }
-        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', 'widget': widget}))
+        self.s3.put_object(Bucket=self.request_bucket, Key='request1', Body=json.dumps({'type': 'create', **widget}))
 
         # Process the request
         self.consumer.process_request('request1')
@@ -91,14 +91,14 @@ class TestConsumer(unittest.TestCase):
 
     
     def test_store_in_dynamodb(self):
-        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User'}
+        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
         expected_widget = {
             'id': '1',
             'widgetId': '1',
             'owner': 'Test User',
             'label': None,
             'description': None,
-            'otherAttributes': None
+            'other': 'other'
         }
         self.consumer.store_in_dynamodb(widget)
 
@@ -108,20 +108,28 @@ class TestConsumer(unittest.TestCase):
 
    
     def test_store_in_s3(self):
-        widget = {'widgetId': '1', 'owner': 'Test User'}
+        widget = {'id': '1', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]}
+        expected_widget = {
+            'id': '1',
+            'widgetId': '1', 
+            'owner': 'Test User', 
+            'label': None,
+            'description': None,
+            'other': 'other'
+        }
         self.consumer.store_in_s3(widget)
 
         # Check if stored in S3 with correct key
         result = self.s3.get_object(Bucket=self.storage_bucket, Key='widgets/test-user/1')
         stored_widget = json.loads(result['Body'].read().decode('utf-8'))
-        self.assertEqual(stored_widget, widget)
+        self.assertEqual(stored_widget, expected_widget)
         
     def test_get_next_message(self):
         # Add a message to the queue
         
         self.sqs.send_message(
             QueueUrl=self.queue_url,
-            MessageBody=json.dumps({'type': 'create', 'widget': {'widgetId': '1', 'owner': 'Test User'}})
+            MessageBody=json.dumps({'type': 'create', 'widgetId': '1', 'owner': 'Test User', 'otherAttributes': [{'name': 'other', 'value': 'other'}]})
         )
 
         message = self.consumer.get_next_message()
@@ -138,18 +146,18 @@ class TestConsumer(unittest.TestCase):
             'widgetId': '1',
             'owner': 'Test User',
             'label': 'Old Label',
-            'description': 'Old Description'
+            'description': 'Old Description',
+            'otherAttributes': [{'name': 'other', 'value': 'other'}]
         })
 
         # Update request payload
         update_request = {
             'type': 'update',
-            'widget': {
-                'widgetId': '1',
-                'label': 'Updated Label',
-                'description': 'Updated Description',
-                'newAttribute': 'New Value'
-            }
+            'widgetId': '1',
+            'label': 'Updated Label',
+            'description': 'Updated Description',
+            'newAttribute': 'New Value',
+            'otherAttributes': [{'name': 'other', 'value': 'other'}]
         }
 
         # Call the update handler
@@ -172,7 +180,8 @@ class TestConsumer(unittest.TestCase):
             'widgetId': '1',
             'owner': 'Test User',
             'label': 'Label to be deleted',
-            'description': 'Description to be deleted'
+            'description': 'Description to be deleted',
+            'otherAttributes': [{'name': 'other', 'value': 'other'}]
         })
 
         # Add an S3 object corresponding to the widget
@@ -181,10 +190,8 @@ class TestConsumer(unittest.TestCase):
         # Delete request payload
         delete_request = {
             'type': 'delete',
-            'widget': {
-                'widgetId': '1',
-                'owner': 'Test User'
-            }
+            'widgetId': '1',
+            'owner': 'Test User'
         }
 
         # Call the delete handler

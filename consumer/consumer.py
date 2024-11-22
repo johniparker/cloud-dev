@@ -85,27 +85,20 @@ class Consumer:
     #if the request is a create request, create the item in s3 and dynamodb
     def handle_create_request(self, request):
         widget = {
-            'id': request['widget'].get('widgetId'),  # Map widgetId to id for DynamoDB
-            'widgetId': request['widget'].get('widgetId'),
-            'owner': request['widget'].get('owner'),
-            'label': request['widget'].get('label'),
-            'description': request['widget'].get('description'),
-            'otherAttributes': request['widget'].get('otherAttributes')
+            'id': request.get('widgetId'),  # Map widgetId to id for DynamoDB
+            'widgetId': request.get('widgetId'),
+            'owner': request.get('owner'),
+            'label': request.get('label'),
+            'description': request.get('description'),
+            'otherAttributes': request.get('otherAttributes')
         }
-        # Ensure 'owner' is a string before calling replace
-        owner = widget['owner']
-        if isinstance(owner, str):
-            owner = owner.replace(" ", "-").lower()
-        else:
-            logging.error(f"Invalid owner value: {owner}")
-            return
             
         self.store_in_s3(widget)
         self.store_in_dynamodb(widget)
     #if the request is to update, update the item in s3 and dynamodb
     def handle_update_request(self, request):
-        widget_id = request['widget'].get('widgetId')
-        updates = request['widget']
+        widget_id = request.get('widgetId')
+        updates = request
         if not widget_id:
             logging.error("Update request missing widgetId")
             return
@@ -128,7 +121,7 @@ class Consumer:
     
     #delete widget from both dynamodb and s3
     def handle_delete_request(self, request):
-        widget_id = request['widget'].get('widgetId')
+        widget_id = request.get('widgetId')
         if not widget_id:
             logging.error("Delete request missing widgetId")
             return
@@ -137,14 +130,30 @@ class Consumer:
         self.table.delete_item(Key={'widgetId': widget_id})
 
         # Optionally, delete related S3 object
-        owner = request['widget'].get('owner', '').replace(" ", "-").lower()
+        owner = request.get('owner', '').replace(" ", "-").lower()
         s3_key = f"widgets/{owner}/{widget_id}"
         self.s3.delete_object(Bucket=self.request_bucket, Key=s3_key)
         
     def store_in_s3(self, widget):
+        flattened_widget = {
+            'id': widget.get('id'),
+            'widgetId': widget.get('widgetId'),
+            'owner': widget.get('owner'),
+            'label': widget.get('label'),
+            'description': widget.get('description')
+        }
+        
+        other_attributes = widget.get('otherAttributes', [])
+        if other_attributes:
+            for attribute in other_attributes:
+                name = attribute.get('name')
+                value = attribute.get('value')
+                if name and value is not None:
+                    flattened_widget[name] = value
+    
         owner = widget['owner'].replace(" ", "-").lower()
         key = f"widgets/{owner}/{widget['widgetId']}"
-        self.s3.put_object(Bucket=self.storage_bucket, Key=key, Body=json.dumps(widget))
+        self.s3.put_object(Bucket=self.storage_bucket, Key=key, Body=json.dumps(flattened_widget))
         logging.info(f"Stored widget in S3 at key: {key}")
 
     def store_in_dynamodb(self, widget):
@@ -157,14 +166,16 @@ class Consumer:
             'widgetId': widget.get('widgetId'),
             'owner': widget.get('owner'),
             'label': widget.get('label'),
-            'description': widget.get('description'),
-            'otherAttributes': widget.get('otherAttributes')
+            'description': widget.get('description')
         }
         
-        other_attributes = widget.get('otherAttributes', {})
+        other_attributes = widget.get('otherAttributes', [])
         if other_attributes:
-            for key, value in other_attributes.items():
-                flattened_widget[key] = value
+            for attribute in other_attributes:
+                name = attribute.get('name')
+                value = attribute.get('value')
+                if name and value is not None:
+                    flattened_widget[name] = value
           
         self.table.put_item(Item=flattened_widget)
         logging.info("Stored widget in DynamoDB")
