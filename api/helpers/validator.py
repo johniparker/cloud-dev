@@ -4,12 +4,25 @@ from jsonschema import validate, ValidationError
 WIDGET_REQUEST_SCHEMA = {
     "type": "object",
     "properties": {
-        "widget_id": {"type": "string"},
-        "widget_type": {"type": "string"},
-        "quantity": {"type": "integer", "minimum": 1},
-        "priority": {"type": "string", "enum": ["low", "medium", "high"]}
+        "queueName": {"type": "string"},
+        "requestId": {"type": "string"},
+        "widgetId": {"type": "string"},
+        "owner": {"type": "string"},
+        "label": {"type": "string"},
+        "description": {"type": "string"},
+        "otherAttributes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "value": {"type": "string"}
+                },
+                "required": ["name", "value"]
+            }
+        }
     },
-    "required": ["widget_id", "widget_type", "quantity", "priority"]
+    "required": ["queueName", "requestId", "widgetId"]
 }
 
 def validate_widget_request(request_body):
