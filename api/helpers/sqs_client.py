@@ -1,6 +1,9 @@
 import boto3
 import logging
 import json
+from api.logging_config import setup_logging
+
+setup_logging()
 # Initialize SQS client
 sqs = boto3.client('sqs')
 
@@ -33,7 +36,14 @@ def send_to_queue(request_body):
         )
         message_id = send_response.get('MessageId')
         logging.info(f"Message sent successfully. Message ID: {message_id}")
-        return message_id
+        return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Message sent successfully.",
+                    "message_id": message_id,
+                    "queue_name": queue_name
+                })
+            }
     except Exception as e:
         logging.error(f"Failed to send message: {e}")
         return None
