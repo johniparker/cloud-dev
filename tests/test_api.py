@@ -5,7 +5,6 @@ import boto3
 import json
 from api.request_handler import request_handler
 
-
 class TestRequestHandler(unittest.TestCase):
     def setUp(self):
         # Start Moto mock for AWS services
@@ -57,7 +56,7 @@ class TestRequestHandler(unittest.TestCase):
 
         body = json.loads(response["body"])
         self.assertIn("error", body)
-        self.assertEqual(body["error"], "Missing 'queueName' in the request body.")
+        self.assertEqual(body["error"], "Invalid request: 'queueName' is a required property")
 
     def test_request_handler_invalid_request(self):
         # Invalid request with missing required fields
@@ -86,11 +85,11 @@ class TestRequestHandler(unittest.TestCase):
         event = {"body": json.dumps(request_body)}
 
         response = request_handler(event)
-        self.assertEqual(response["statusCode"], 500)
+        self.assertEqual(response["statusCode"], 400)
 
         body = json.loads(response["body"])
         self.assertIn("error", body)
-        self.assertEqual(body["error"], "Internal Server Error")
+        self.assertEqual(body["error"], "The queue 'non-existent-queue' does not exist.")
 
     def test_request_handler_add_request_id(self):
         # Request without a requestId
@@ -126,7 +125,7 @@ class TestRequestHandler(unittest.TestCase):
 
         body = json.loads(response["body"])
         self.assertIn("error", body)
-        self.assertEqual(body["error"], "Internal Server Error")
+        self.assertEqual(body["error"], "Failed to send message to queue.")
 
 
 if __name__ == "__main__":

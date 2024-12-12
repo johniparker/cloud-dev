@@ -9,10 +9,6 @@ sqs = boto3.client('sqs')
 
 def send_to_queue(request_body):
     queue_name = request_body.get('queueName')
-    if not queue_name:
-        logging.error("Missing 'queueName' in the request body.")
-        return None
-
     try:
         # Attempt to get the queue URL
         response = sqs.get_queue_url(QueueName=queue_name)
@@ -20,10 +16,16 @@ def send_to_queue(request_body):
         logging.info(f"Queue URL retrieved: {queue_url}")
     except sqs.exceptions.QueueDoesNotExist:
         logging.error(f"The queue '{queue_name}' does not exist.")
-        return None
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": f"The queue '{queue_name}' does not exist."})
+        }
     except Exception as e:
         logging.error(f"Failed to retrieve queue URL: {e}")
-        return None
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Failed to retrieve queue URL."})
+        }
 
     # Prepare the message body by excluding the 'queueName' key
     message_body = {key: value for key, value in request_body.items() if key != 'queueName'}
@@ -46,4 +48,7 @@ def send_to_queue(request_body):
             }
     except Exception as e:
         logging.error(f"Failed to send message: {e}")
-        return None
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Failed to send message to queue."})
+        }

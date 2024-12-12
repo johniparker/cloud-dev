@@ -1,4 +1,5 @@
 from jsonschema import validate, ValidationError
+import json
 import logging
 from api.logging_config import setup_logging
 
@@ -30,17 +31,12 @@ WIDGET_REQUEST_SCHEMA = {
 
 def validate_widget_request(request_body):
     try:
-        # Validate the request body with the schema
         validate(instance=request_body, schema=WIDGET_REQUEST_SCHEMA)
-        
-        # Check for missing queueName or widgetId if schema is valid
-        if "queueName" not in request_body:
-            logging.error("Missing 'queueName' in the request body.")
-            raise ValueError("Missing 'queueName' in the request body.")
-        if "widgetId" not in request_body:
-            logging.error("Missing 'widgetId' in the request body.")
-            raise ValueError("Missing 'widgetId' in the request body.")
     except ValidationError as e:
         logging.error(f"Validation failed: {e.message}")
-        raise ValueError(f"Invalid request: {e.message}")
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": f"Invalid request: {e.message}"})
+        }
     logging.info("Request validation passed.")
+    return None
